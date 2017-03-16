@@ -7,11 +7,56 @@ You must test your agent's strength against a set of agents with known
 relative strength using tournament.py and include the results in your report.
 """
 import random
+import math
 
 
 class Timeout(Exception):
     """Subclass base exception for code clarity."""
     pass
+
+def agressive_score(game, player):
+    if (len(game.get_blank_spaces())/(game.width * game.height)) <0.6:
+        game_state_factor = 60
+    else:
+        game_state_factor = 30
+    own_move = len(game.get_legal_moves(player))
+    opp_moves = len(game.get_legal_moves(game.get_opponent(player)))
+    return float(own_move- (game_state_factor*opp_moves))
+
+def corner_panalty(game, player):
+    game_state_factor = -15
+    if (len(game.get_blank_spaces())/(game.width * game.height)) <0.6:
+       game_state_factor = 40
+    corner = [(0,0), (0,1), (1,0), (1,1),
+            (0,7), (1,7), (0,6), (1,6),
+            (7,0), (7,1), (6,0), (6,1),
+            (7,7), (7,6), (6,7), (6.6)]
+    moves = game.get_legal_moves(player)
+    cornermove = [move for move in moves if move in corner]
+    oppmoves = game.get_legal_moves(game.get_opponent(player))
+    oppcornermove = [move for move in oppmoves if move in corner]
+    return float(len(moves) - (game_state_factor*len(cornermove)) -(len(oppmoves)- (game_state_factor*len(oppcornermove))))
+    
+def combination(game,player):
+    #for less than 60% occupacy, will be evaluated by aggressive heuristic
+    #for more than 60%, will be with corner penalty
+    #instead of factor -15 that is used in the original corner_panalty, it will be 60
+    if (len(game.get_blank_spaces())/(game.width * game.height)) <0.6:
+        game_state_factor = 60
+        own_move = len(game.get_legal_moves(player))
+        opp_moves = len(game.get_legal_moves(game.get_opponent(player)))
+        return float(own_move- (game_state_factor*opp_moves))
+    else:
+        game_state_factor= 60
+        corner = [(0,0), (0,1), (1,0), (1,1),
+            (0,7), (1,7), (0,6), (1,6),
+            (7,0), (7,1), (6,0), (6,1),
+            (7,7), (7,6), (6,7), (6.6)]
+        moves = game.get_legal_moves(player)
+        cornermove = [move for move in moves if move in corner]
+        oppmoves = game.get_legal_moves(game.get_opponent(player))
+        oppcornermove = [move for move in oppmoves if move in corner]
+        return float(len(moves) - (game_state_factor*len(cornermove)) -(len(oppmoves)- (game_state_factor*len(oppcornermove))))
 
 
 def custom_score(game, player):
@@ -44,11 +89,11 @@ def custom_score(game, player):
     if game.is_winner(player):
         return float("inf")
 
-    own_moves = len(game.get_legal_moves(player))
-    opp_moves = len(game.get_legal_moves(game.get_opponent(player)))
-    return float(own_moves - opp_moves)
+    #return agressive_score(game,player)
+    #return corner_panalty(game,player)
+    return combination(game,player)
 
-    #raise NotImplementedError
+    
 
 
 class CustomPlayer:
@@ -136,22 +181,31 @@ class CustomPlayer:
         if not legal_moves:
             return (-1, -1)
 
+        move = None
         try:
             # The search method call (alpha beta or minimax) should happen in
             # here in order to avoid timeout. The try/except block will
             # automatically catch the exception raised by the search method
             # when the timer gets close to expiring
-            pass
+            if self.iterative:
+                i = 1
+                while True:
+                    if self.method == "minimax":
+                        _,move = self.minimax(game, i)
+                    elif self.method == "alphabeta":
+                        _,move = self.alphabeta(game, i)
+                    i = i +1
+            else:
+                if self.method == "minimax":
+                    _,move = self.minimax(game, self.search_depth)
+                elif self.method == "alphabeta":
+                    _,move = self.alphabeta(game, self.search_depth)
 
         except Timeout:
             # Handle any actions required at timeout, if necessary
             pass
-
-        
-        _, move = max([(self.score(game.forecast_move(m), self), m) for m in legal_moves])
         return move
         # Return the best move from the last completed search iteration
-        raise NotImplementedError
 
     def minimax(self, game, depth, maximizing_player=True):
         """Implement the minimax search algorithm as described in the lectures.
@@ -191,10 +245,10 @@ class CustomPlayer:
 
         legal_moves = game.get_legal_moves(player)
         if not legal_moves:
-            return float("-inf"),(-1, -1) 
+            return game.utility(self),(-1, -1) 
         
         best_score = float("-inf") if maximizing_player else float("inf")
-        best_move = (-1,-1)
+        best_move = None
     
         for move in legal_moves:
             score, _ = (self.score(game.forecast_move(move),self),move) if depth ==1 else self.minimax(game.forecast_move(move), depth-1, not maximizing_player)
@@ -252,28 +306,30 @@ class CustomPlayer:
         legal_moves = game.get_legal_moves(player)
         
         if not legal_moves:
-            return float("-inf"),(-1, -1) 
+            return game.utility(self),(-1, -1) 
+        
+        best_move = None
 
-        best_move = (-1,-1)
+        if maximizing_player:
+            best_score= float("-inf")
+            for move in legal_moves:
+                score,_ = (self.score(game.forecast_move(move),self),move) if depth==1 else self.alphabeta(game.forecast_move(move), depth-1, alpha, beta, not maximizing_player)
+                if best_score < score:
+                    best_score = score
+                    best_move = move
+                    if best_score >= beta:
+                        return best_score, move
+                    alpha = max(alpha,best_score)
+            return best_score, best_move
+        else:
+            best_score = float("inf")
+            for move in legal_moves:
+                score,_ = (self.score(game.forecast_move(move),self),move) if depth==1 else self.alphabeta(game.forecast_move(move), depth-1, alpha, beta, not maximizing_player)
+                if score < best_score:
+                    best_score = score
+                    best_move = move
+                    if best_score<= alpha:
+                        return best_score, move
 
-        best_score = float("-inf") if maximizing_player else float("inf")
-
-        for move in legal_moves:
-            score,_ = (self.score(game.forecast_move(move),self),move) if depth==1 else self.alphabeta(game.forecast_move(move), depth-1, alpha, beta, not maximizing_player)
-            if maximizing_player:
-                v = float ("-inf")
-                v = max(score,v)
-                alpha = max(alpha, v)
-                if alpha>= beta:
-                    return score, move
-            else:
-                v = float("inf")
-                v = min(score,v)
-                beta = min(beta,v)
-                if alpha>= beta:
-                    return score, move
-
-            best_score = max(best_score, score) if maximizing_player else min(best_score, score)
-            if score == best_score:
-                best_move = move
-        return best_score, best_move
+                    beta = min(beta, best_score)
+            return best_score, best_move
